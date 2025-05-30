@@ -336,6 +336,8 @@ async function sendSwapPrompt(walletAddress, amountStr, inToken, outToken) {
   }
 }
 
+// ... (bagian atas fungsi executeSwap tetap sama) ...
+
 async function executeSwap(wallet, provider, swapApiData, swapCount, inTokenName, outTokenName, inTokenAddress) {
   if (shouldStop) {
     addLog(`Swap ${swapCount} cancelled.`, "info");
@@ -346,29 +348,45 @@ async function executeSwap(wallet, provider, swapApiData, swapCount, inTokenName
   addLog(`Swap ${swapCount}: Preparing to swap ${swapApiData.amount} ${inTokenName} for ${outTokenName}.`, "info");
   try {
     const inTokenContract = new ethers.Contract(inTokenAddress, ERC20_ABI, provider);
-    const inTokenDecimals = await inTokenContract.decimals().catch(() => 18);
+    const inTokenDecimals = await inTokenContract.decimals().catch(() => 18); // Default ke 18 jika gagal ambil decimals
     const amountIn = ethers.parseUnits(swapApiData.amount.toString(), Number(inTokenDecimals));
-    const amountOutMin = ethers.toBigInt(swapApiData.amountOutMin.toString());
+
+    // ---- PERBAIKAN DI SINI ----
+    // Ambil alamat token output (LOP) dari path yang diberikan API. Token terakhir di path adalah token output.
+    if (!swapApiData.path || swapApiData.path.length < 2) {
+        addLog(`Swap ${swapCount}: Invalid path received from API: ${swapApiData.path}`, "error");
+        return null;
+    }
+    const outTokenAddressFromPath = swapApiData.path[swapApiData.path.length - 1];
+    const outTokenContract = new ethers.Contract(outTokenAddressFromPath, ERC20_ABI, provider);
+    const outTokenDecimals = await outTokenContract.decimals().catch(() => 18); // Default ke 18 jika gagal ambil decimals
+    
+    // Konversi amountOutMin dari string desimal ke BigInt dalam satuan wei
+    const amountOutMin = ethers.parseUnits(swapApiData.amountOutMin.toString(), Number(outTokenDecimals)); 
+    // ---- AKHIR PERBAIKAN ----
+
     const path = swapApiData.path;
     const to = signer.address;
-    const deadline = Math.floor(Date.now() / 1000) + 600;
+    const deadline = Math.floor(Date.now() / 1000) + 600; // 10 menit
 
     const isApproved = await checkAndApproveToken(wallet, provider, inTokenAddress, amountIn, inTokenName, swapCount);
     if (!isApproved) {
       addLog(`Swap ${swapCount}: Approval failed/insufficient balance. Skipping.`, "warn");
       return null;
     }
-    addLog(`Swap ${swapCount}: Executing swap on router...`, "info");
+    addLog(`Swap ${swapCount}: Executing swap on router... (AmountIn: ${ethers.formatUnits(amountIn, Number(inTokenDecimals))} ${inTokenName}, AmountOutMin: ${ethers.formatUnits(amountOutMin, Number(outTokenDecimals))} ${outTokenName})`, "info"); // Log tambahan untuk debug
     const nonce = await getNextNonce(provider, signer.address);
     const feeData = await provider.getFeeData();
     const txOverrides = {
-        gasLimit: 300000n, nonce: nonce,
+        gasLimit: 300000n, // Anda bisa sesuaikan jika perlu
+        nonce: nonce,
         maxFeePerGas: feeData.maxFeePerGas || ethers.parseUnits("1.5", "gwei"),
         maxPriorityFeePerGas: feeData.maxPriorityFeePerGas || ethers.parseUnits("1", "gwei")
     };
      if(!txOverrides.maxFeePerGas && !txOverrides.maxPriorityFeePerGas && feeData.gasPrice) {
-        txOverrides.gasPrice = feeData.gasPrice;
-        delete txOverrides.maxFeePerGas; delete txOverrides.maxPriorityFeePerGas;
+        txOverrides.gasPrice = feeData.gasPrice; // Fallback ke gasPrice jika EIP-1559 tidak tersedia
+        delete txOverrides.maxFeePerGas; 
+        delete txOverrides.maxPriorityFeePerGas;
     }
     const tx = await router.swapExactTokensForTokens(amountIn, amountOutMin, path, to, deadline, txOverrides);
     addLog(`Swap ${swapCount}: Tx sent. Hash: ${getShortHash(tx.hash)}`, "success");
@@ -377,6 +395,9 @@ async function executeSwap(wallet, provider, swapApiData, swapCount, inTokenName
     return receipt;
   } catch (error) {
     addLog(`Swap ${swapCount}: Swap failed: ${error.message}`, "error");
+    if (error.stack && isDebug) { // Tampilkan stack trace jika isDebug true
+        console.error(error.stack);
+    }
     if (error.message.includes("nonce")) nonceTracker[wallet.address] = undefined;
     return null;
   }
