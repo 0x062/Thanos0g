@@ -1,21 +1,21 @@
 import { ethers } from "ethers";
-import fs from "fs"; // Masih digunakan untuk CONFIG_FILE jika ada fitur config lain, tapi untuk swapRepetitions tidak.
 import axios from "axios";
-import 'dotenv/config'; // Untuk memuat variabel dari .env
+import 'dotenv/config';
+import chalk from 'chalk';
 
-// --- Konfigurasi Hardcoded ---
-const SWAP_REPETITIONS = 10; // Jumlah repetisi swap per siklus
-const RPC_URL = process.env.RPC_URL || "https://0g-testnet-rpc.astrostake.xyz"; // Ambil dari .env atau default
+// --- Konfigurasi Hardcoded & Environment ---
+const SWAP_REPETITIONS = 10; 
+const RPC_URL = process.env.RPC_URL || "https://0g-testnet-rpc.astrostake.xyz";
 const THE_PRIVATE_KEY = process.env.PRIVATE_KEY;
 
-// --- Alamat Kontrak & API (tidak berubah) ---
+// --- Alamat Kontrak & API ---
 const USDT_ADDRESS = "0xe6c489B6D3eecA451D60cfda4782e9E727490477";
 const LOP_ADDRESS = "0x8b1b701966cfdd5021014bc9c18402b38091b7a8";
 const ROUTER_ADDRESS = "0xDCd7d05640Be92EC91ceb1c9eA18e88aFf3a6900";
 const FAUCET_ADDRESS = "0xdE56D007B41a591C98dC71e896AD0a844356e584";
 const API_BASE_URL = "https://trade-gpt-800267618745.herokuapp.com";
 
-const isDebug = false; // Set true untuk logging lebih detail
+const isDebug = false; 
 
 let nonceTracker = {};
 let shouldStop = false;
@@ -37,7 +37,7 @@ const FAUCET_ABI = [
   { "inputs": [{"internalType": "address", "name": "", "type": "address"}], "name": "lastRequest", "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}], "stateMutability": "view", "type": "function"}
 ];
 
-const USER_AGENTS = [ // Hanya satu User-Agent yang akan dipakai karena tidak ada iterasi akun
+const USER_AGENTS = [ 
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
 ];
@@ -53,15 +53,57 @@ function getShortHash(hash) {
 
 function addLog(message, type = "info") {
   if (type === "debug" && !isDebug) return;
-  const timestamp = new Date().toISOString();
-  const logMessage = `[${timestamp}] [${type.toUpperCase()}] [Wallet] ${message}`; // Tambahkan [Wallet] karena hanya satu
+
+  const timestamp = new Date().toLocaleTimeString('id-ID', { 
+    hour12: false, 
+    hour: '2-digit', 
+    minute: '2-digit', 
+    second: '2-digit' 
+  });
+
+  let levelPrefix;
+  let coloredMessage = message;
+  let icon = "";
+
+  switch (type.toUpperCase()) {
+    case "INFO":
+      levelPrefix = chalk.blue.bold(`[INFO]   `);
+      coloredMessage = chalk.white(message);
+      break;
+    case "SUCCESS":
+      icon = chalk.greenBright("✔ ");
+      levelPrefix = chalk.green.bold(`[SUCCESS]`);
+      coloredMessage = chalk.greenBright(message);
+      break;
+    case "ERROR":
+      icon = chalk.redBright("✖ ");
+      levelPrefix = chalk.red.bold(`[ERROR]  `);
+      coloredMessage = chalk.redBright.bold(message);
+      break;
+    case "WAIT":
+      icon = chalk.yellowBright("🕒 ");
+      levelPrefix = chalk.yellow.bold(`[WAIT]   `);
+      coloredMessage = chalk.yellow(message);
+      break;
+    case "DEBUG":
+      levelPrefix = chalk.magenta.bold(`[DEBUG]  `);
+      coloredMessage = chalk.magenta(message);
+      break;
+    default:
+      levelPrefix = chalk.gray.bold(`[${type.toUpperCase()}]`);
+      coloredMessage = chalk.gray(message);
+  }
+
+  const walletTag = chalk.cyanBright('[Wallet]');
+  const finalLog = `${chalk.dim.gray(`[${timestamp}]`)} ${levelPrefix} ${icon}${walletTag} ${coloredMessage}`;
   
-  if (type === "error") {
-    console.error(logMessage);
+  if (type.toUpperCase() === "ERROR") {
+    console.error(finalLog);
   } else {
-    console.log(logMessage);
+    console.log(finalLog);
   }
 }
+
 
 async function sleep(ms) {
   if (shouldStop) {
@@ -90,7 +132,7 @@ async function sleep(ms) {
 }
 
 // --- Network & Blockchain Interaction ---
-function getProvider() { // Tidak ada lagi proxy
+function getProvider() {
     try {
         const provider = new ethers.JsonRpcProvider(RPC_URL);
         return provider;
@@ -100,20 +142,16 @@ function getProvider() { // Tidak ada lagi proxy
     }
 }
 
-function getApiHeaders(customHeaders = {}) { // Tidak perlu accountIndex lagi
-  const userAgent = USER_AGENTS[0]; // Selalu gunakan User-Agent pertama
+function getApiHeaders(customHeaders = {}) {
+  const userAgent = USER_AGENTS[0]; 
   return {
-    "Accept": "*/*",
-    "Accept-Encoding": "gzip, deflate, br",
-    "Connection": "keep-alive",
-    "User-Agent": userAgent,
-    "Origin": "https://0g.app.tradegpt.finance",
-    "Referer": "https://0g.app.tradegpt.finance/",
-    ...customHeaders
+    "Accept": "*/*", "Accept-Encoding": "gzip, deflate, br", "Connection": "keep-alive",
+    "User-Agent": userAgent, "Origin": "https://0g.app.tradegpt.finance",
+    "Referer": "https://0g.app.tradegpt.finance/", ...customHeaders
   };
 }
 
-async function makeApiRequest(method, url, data, customHeaders = {}, maxRetries = 3, retryDelay = 2000) { // Tidak ada proxyUrl, accountIndex
+async function makeApiRequest(method, url, data, customHeaders = {}, maxRetries = 3, retryDelay = 2000) {
   activeProcesses++;
   let lastError = null;
   try {
@@ -123,8 +161,8 @@ async function makeApiRequest(method, url, data, customHeaders = {}, maxRetries 
         throw new Error("Process stopped");
       }
       try {
-        const headers = getApiHeaders(customHeaders); // Panggil tanpa accountIndex
-        const config = { method, url, data, headers, timeout: 10000 };
+        const headers = getApiHeaders(customHeaders);
+        const config = { method, url, data, headers, timeout: 20000 }; // Timeout diperpanjang jadi 20s
         if (isDebug && data) addLog(`Sending payload to ${url}: ${JSON.stringify(data, null, 2)}`, "debug");
         
         const response = await axios(config);
@@ -169,7 +207,7 @@ async function fetchAccountBalances(provider, walletAddress) {
         const usdtBalance = ethers.formatUnits(usdtBalanceRaw, usdtDecimals);
         const lopBalance = ethers.formatUnits(lopBalanceRaw, lopDecimals);
 
-        addLog(`(${getShortAddress(walletAddress)}) Balances: AOGI: ${parseFloat(aogiBalance).toFixed(4)}, USDT: ${parseFloat(usdtBalance).toFixed(2)}, LOP: ${parseFloat(lopBalance).toFixed(2)}`, "info");
+        addLog(`(${getShortAddress(walletAddress)}) Balances: AOGI: ${chalk.bold(parseFloat(aogiBalance).toFixed(4))}, USDT: ${chalk.bold(parseFloat(usdtBalance).toFixed(2))}, LOP: ${chalk.bold(parseFloat(lopBalance).toFixed(2))}`, "info");
         return { aogiBalance, usdtBalance, lopBalance };
     } catch (error) {
         addLog(`(${getShortAddress(walletAddress)}): Failed to fetch balances: ${error.message}`, "error");
@@ -184,13 +222,13 @@ async function getNextNonce(provider, walletAddress) {
     const lastUsedNonce = nonceTracker[walletAddress] || networkNonce - 1;
     const nextNonce = Math.max(networkNonce, lastUsedNonce + 1);
     nonceTracker[walletAddress] = nextNonce;
-    addLog(`Nonce for ${getShortAddress(walletAddress)}: ${nextNonce}`, "debug");
+    addLog(`Nonce for ${getShortAddress(walletAddress)}: ${chalk.yellow(nextNonce)}`, "debug");
     return nextNonce;
   } catch (error) {
     addLog(`Error fetching nonce for ${getShortAddress(walletAddress)}: ${error.message}`, "error");
     try {
         const fallbackNonce = await provider.getTransactionCount(walletAddress, "latest");
-        addLog(`Using fallback nonce for ${getShortAddress(walletAddress)}: ${fallbackNonce}`, "warn");
+        addLog(`Using fallback nonce for ${getShortAddress(walletAddress)}: ${chalk.yellow(fallbackNonce)}`, "warn");
         nonceTracker[walletAddress] = fallbackNonce;
         return fallbackNonce;
     } catch (e) {
@@ -242,7 +280,7 @@ async function claimFaucet(wallet, provider) {
         delete txOverrides.maxFeePerGas; delete txOverrides.maxPriorityFeePerGas;
     }
     const tx = await faucet.requestTokens(txOverrides);
-    addLog(`Faucet claim tx sent. Hash: ${getShortHash(tx.hash)}`, "success");
+    addLog(`Faucet claim tx sent. Hash: ${chalk.blueBright(getShortHash(tx.hash))}`, "success");
     await tx.wait();
     addLog(`Successfully claimed 100 USDT from faucet.`, "success");
     return true;
@@ -260,17 +298,17 @@ async function checkAndApproveToken(wallet, provider, tokenAddress, amountInWei,
   }
   const signer = wallet.connect(provider);
   const token = new ethers.Contract(tokenAddress, ERC20_ABI, signer);
-  addLog(`Swap ${swapCount}: Checking balance & allowance for ${tokenName}...`, "debug");
+  addLog(`Swap ${swapCount}: Checking balance & allowance for ${chalk.yellow(tokenName)}...`, "debug");
   try {
     const balance = await token.balanceOf(signer.address);
     const tokenDecimals = await token.decimals().catch(() => 18);
     if (balance < amountInWei) {
-      addLog(`Swap ${swapCount}: Insufficient ${tokenName} balance (${ethers.formatUnits(balance, Number(tokenDecimals))}). Needed: ${ethers.formatUnits(amountInWei, Number(tokenDecimals))}`, "error");
+      addLog(`Swap ${swapCount}: Insufficient ${chalk.yellow(tokenName)} balance (${ethers.formatUnits(balance, Number(tokenDecimals))}). Needed: ${ethers.formatUnits(amountInWei, Number(tokenDecimals))}`, "error");
       return false;
     }
     const allowance = await token.allowance(signer.address, ROUTER_ADDRESS);
     if (allowance < amountInWei) {
-      addLog(`Swap ${swapCount}: Approving ${tokenName} for router. Allowance: ${ethers.formatUnits(allowance,Number(tokenDecimals))}, Need: ${ethers.formatUnits(amountInWei,Number(tokenDecimals))}`, "info");
+      addLog(`Swap ${swapCount}: Approving ${chalk.yellow(tokenName)} for router. Allowance: ${ethers.formatUnits(allowance,Number(tokenDecimals))}, Need: ${ethers.formatUnits(amountInWei,Number(tokenDecimals))}`, "info");
       const nonce = await getNextNonce(provider, signer.address);
       const feeData = await provider.getFeeData();
       const txOverrides = {
@@ -283,24 +321,24 @@ async function checkAndApproveToken(wallet, provider, tokenAddress, amountInWei,
         delete txOverrides.maxFeePerGas; delete txOverrides.maxPriorityFeePerGas;
       }
       const tx = await token.approve(ROUTER_ADDRESS, ethers.MaxUint256, txOverrides);
-      addLog(`Swap ${swapCount}: Approval for ${tokenName} sent. Hash: ${getShortHash(tx.hash)}`, "success");
+      addLog(`Swap ${swapCount}: Approval for ${chalk.yellow(tokenName)} sent. Hash: ${chalk.blueBright(getShortHash(tx.hash))}`, "success");
       await tx.wait();
-      addLog(`Swap ${swapCount}: ${tokenName} approved.`, "success");
+      addLog(`Swap ${swapCount}: ${chalk.yellow(tokenName)} approved.`, "success");
     } else {
-      addLog(`Swap ${swapCount}: Sufficient ${tokenName} allowance present.`, "debug");
+      addLog(`Swap ${swapCount}: Sufficient ${chalk.yellow(tokenName)} allowance present.`, "debug");
     }
     return true;
   } catch (error) {
-    addLog(`Swap ${swapCount}: Error approving/checking ${tokenName}: ${error.message}`, "error");
+    addLog(`Swap ${swapCount}: Error approving/checking ${chalk.yellow(tokenName)}: ${error.message}`, "error");
     if (error.message.includes("nonce")) nonceTracker[wallet.address] = undefined;
     return false;
   }
 }
 
 function getSwapDetailsUsdtToLop() {
-  const minUsdt = 5; const maxUsdt = 10;
+  const minUsdt = 5; const maxUsdt = 10; // Anda bisa sesuaikan rentang ini
   const amount = (Math.random() * (maxUsdt - minUsdt) + minUsdt).toFixed(2);
-  addLog(`Preparing USDT -> LOP swap for ${amount} USDT.`, "debug");
+  addLog(`Preparing USDT -> LOP swap for ${chalk.yellow(amount + " USDT")}.`, "debug");
   return { 
     amountStr: amount.toString(), inToken: "USDT", outToken: "LOP", 
     inTokenAddress: USDT_ADDRESS, outTokenAddress: LOP_ADDRESS
@@ -309,7 +347,7 @@ function getSwapDetailsUsdtToLop() {
 
 async function sendSwapPrompt(walletAddress, amountStr, inToken, outToken) {
   const prompt = `Swap ${amountStr} ${inToken} to ${outToken}`;
-  addLog(`Sending prompt to API: "${prompt}"`, "info");
+  addLog(`Sending prompt to API: "${chalk.italic(prompt)}"`, "info");
   const payload = {
     chainId: 16601, user: walletAddress,
     questions: [{
@@ -336,8 +374,6 @@ async function sendSwapPrompt(walletAddress, amountStr, inToken, outToken) {
   }
 }
 
-// ... (bagian atas fungsi executeSwap tetap sama) ...
-
 async function executeSwap(wallet, provider, swapApiData, swapCount, inTokenName, outTokenName, inTokenAddress) {
   if (shouldStop) {
     addLog(`Swap ${swapCount} cancelled.`, "info");
@@ -345,58 +381,52 @@ async function executeSwap(wallet, provider, swapApiData, swapCount, inTokenName
   }
   const signer = wallet.connect(provider);
   const router = new ethers.Contract(ROUTER_ADDRESS, ROUTER_ABI, signer);
-  addLog(`Swap ${swapCount}: Preparing to swap ${swapApiData.amount} ${inTokenName} for ${outTokenName}.`, "info");
+  addLog(`Swap ${swapCount}: Preparing to swap ${chalk.yellow(swapApiData.amount + " " + inTokenName)} for ${chalk.yellow(outTokenName)}.`, "info");
   try {
     const inTokenContract = new ethers.Contract(inTokenAddress, ERC20_ABI, provider);
-    const inTokenDecimals = await inTokenContract.decimals().catch(() => 18); // Default ke 18 jika gagal ambil decimals
+    const inTokenDecimals = await inTokenContract.decimals().catch(() => 18);
     const amountIn = ethers.parseUnits(swapApiData.amount.toString(), Number(inTokenDecimals));
 
-    // ---- PERBAIKAN DI SINI ----
-    // Ambil alamat token output (LOP) dari path yang diberikan API. Token terakhir di path adalah token output.
     if (!swapApiData.path || swapApiData.path.length < 2) {
         addLog(`Swap ${swapCount}: Invalid path received from API: ${swapApiData.path}`, "error");
         return null;
     }
     const outTokenAddressFromPath = swapApiData.path[swapApiData.path.length - 1];
     const outTokenContract = new ethers.Contract(outTokenAddressFromPath, ERC20_ABI, provider);
-    const outTokenDecimals = await outTokenContract.decimals().catch(() => 18); // Default ke 18 jika gagal ambil decimals
-    
-    // Konversi amountOutMin dari string desimal ke BigInt dalam satuan wei
+    const outTokenDecimals = await outTokenContract.decimals().catch(() => 18); 
     const amountOutMin = ethers.parseUnits(swapApiData.amountOutMin.toString(), Number(outTokenDecimals)); 
-    // ---- AKHIR PERBAIKAN ----
 
     const path = swapApiData.path;
     const to = signer.address;
-    const deadline = Math.floor(Date.now() / 1000) + 600; // 10 menit
+    const deadline = Math.floor(Date.now() / 1000) + 600;
 
     const isApproved = await checkAndApproveToken(wallet, provider, inTokenAddress, amountIn, inTokenName, swapCount);
     if (!isApproved) {
       addLog(`Swap ${swapCount}: Approval failed/insufficient balance. Skipping.`, "warn");
       return null;
     }
-    addLog(`Swap ${swapCount}: Executing swap on router... (AmountIn: ${ethers.formatUnits(amountIn, Number(inTokenDecimals))} ${inTokenName}, AmountOutMin: ${ethers.formatUnits(amountOutMin, Number(outTokenDecimals))} ${outTokenName})`, "info"); // Log tambahan untuk debug
+    addLog(`Swap ${swapCount}: Executing swap on router... (AmountIn: ${chalk.yellow(ethers.formatUnits(amountIn, Number(inTokenDecimals)) + " " + inTokenName)}, AmountOutMin: ${chalk.yellow(ethers.formatUnits(amountOutMin, Number(outTokenDecimals)) + " " + outTokenName)})`, "info");
     const nonce = await getNextNonce(provider, signer.address);
     const feeData = await provider.getFeeData();
     const txOverrides = {
-        gasLimit: 300000n, // Anda bisa sesuaikan jika perlu
+        gasLimit: 300000n, 
         nonce: nonce,
         maxFeePerGas: feeData.maxFeePerGas || ethers.parseUnits("1.5", "gwei"),
         maxPriorityFeePerGas: feeData.maxPriorityFeePerGas || ethers.parseUnits("1", "gwei")
     };
      if(!txOverrides.maxFeePerGas && !txOverrides.maxPriorityFeePerGas && feeData.gasPrice) {
-        txOverrides.gasPrice = feeData.gasPrice; // Fallback ke gasPrice jika EIP-1559 tidak tersedia
-        delete txOverrides.maxFeePerGas; 
-        delete txOverrides.maxPriorityFeePerGas;
+        txOverrides.gasPrice = feeData.gasPrice;
+        delete txOverrides.maxFeePerGas; delete txOverrides.maxPriorityFeePerGas;
     }
     const tx = await router.swapExactTokensForTokens(amountIn, amountOutMin, path, to, deadline, txOverrides);
-    addLog(`Swap ${swapCount}: Tx sent. Hash: ${getShortHash(tx.hash)}`, "success");
+    addLog(`Swap ${swapCount}: Tx sent. Hash: ${chalk.blueBright(getShortHash(tx.hash))}`, "success");
     const receipt = await tx.wait();
-    addLog(`Swap ${swapCount}: ${inTokenName} to ${outTokenName} completed. Tx: ${getShortHash(receipt.hash)}`, "success");
+    addLog(`Swap ${swapCount}: ${chalk.yellow(inTokenName)} to ${chalk.yellow(outTokenName)} completed. Tx: ${chalk.blueBright(getShortHash(receipt.hash))}`, "success");
     return receipt;
   } catch (error) {
     addLog(`Swap ${swapCount}: Swap failed: ${error.message}`, "error");
-    if (error.stack && isDebug) { // Tampilkan stack trace jika isDebug true
-        console.error(error.stack);
+    if (error.stack && isDebug) {
+        console.error(chalk.redBright(error.stack));
     }
     if (error.message.includes("nonce")) nonceTracker[wallet.address] = undefined;
     return null;
@@ -413,12 +443,12 @@ async function logTransactionApi(walletAddress, txHash, amountInHuman, usdValue,
   try {
     const response = await makeApiRequest("post", `${API_BASE_URL}/log/logTransaction`, payload);
     if (response.status === "success") {
-      addLog(`Tx ${getShortHash(txHash)} reported to API.`, "success");
+      addLog(`Tx ${chalk.blueBright(getShortHash(txHash))} reported to API.`, "success");
     } else {
-      addLog(`Failed to report tx ${getShortHash(txHash)} to API: ${response.message || JSON.stringify(response)}`, "error");
+      addLog(`Failed to report tx ${chalk.blueBright(getShortHash(txHash))} to API: ${response.message || JSON.stringify(response)}`, "error");
     }
   } catch (error) {
-    addLog(`Error reporting tx ${getShortHash(txHash)} to API: ${error.message}`, "error");
+    addLog(`Error reporting tx ${chalk.blueBright(getShortHash(txHash))} to API: ${error.message}`, "error");
   }
 }
 
@@ -428,7 +458,7 @@ async function fetchPointsApi(walletAddress) {
         addLog(`Fetching points from API...`, "info");
         const response = await makeApiRequest("get", `${API_BASE_URL}/points/${walletAddress}`);
         if (response && response.mainnetPoints !== undefined) {
-            addLog(`Points - Mainnet: ${response.mainnetPoints}, Testnet: ${response.testnetPoints}, Total: ${response.totalPoints}`, "success");
+            addLog(`Points - Mainnet: ${chalk.bold(response.mainnetPoints)}, Testnet: ${chalk.bold(response.testnetPoints)}, Total: ${chalk.bold(response.totalPoints)}`, "success");
         } else {
             addLog(`Invalid points API response. ${JSON.stringify(response)}`, "warn");
         }
@@ -439,24 +469,25 @@ async function fetchPointsApi(walletAddress) {
 
 // --- Main Activity Logic ---
 async function runDailyActivityForWallet(privateKey) {
-  addLog(`Starting daily activity. Auto Swap (USDT->LOP): ${SWAP_REPETITIONS}x.`, "info");
+  addLog(chalk.bgCyan.black.bold(" Starting daily activity cycle "), "info");
+  addLog(`Auto Swap (USDT->LOP): ${chalk.yellow(SWAP_REPETITIONS + "x")}.`, "info");
   let overallSuccess = true;
 
   let provider;
   try {
     provider = getProvider();
     const network = await provider.getNetwork();
-    addLog(`Connected to network: ${network.name} (Chain ID: ${network.chainId})`, "info");
+    addLog(`Connected to network: ${chalk.green(network.name)} (Chain ID: ${chalk.green(network.chainId)})`, "info");
   } catch (error) {
     addLog(`Failed to init/connect provider: ${error.message}. Exiting.`, "error");
-    return false; // Indicate failure
+    return false;
   }
 
   const wallet = new ethers.Wallet(privateKey, provider);
-  addLog(`Wallet Address: ${wallet.address}`, "info");
+  addLog(`Wallet Address: ${chalk.cyanBright(wallet.address)}`, "info");
   await fetchAccountBalances(provider, wallet.address);
 
-  // 1. Faucet Claim
+  addLog(chalk.magenta("--- Faucet Check ---"), "info");
   const cooldownStatus = await checkFaucetCooldown(wallet, provider);
   if (cooldownStatus.canClaim) {
     const claimed = await claimFaucet(wallet, provider);
@@ -466,17 +497,17 @@ async function runDailyActivityForWallet(privateKey) {
       await fetchAccountBalances(provider, wallet.address);
     }
   } else {
-    addLog(`Faucet on cooldown. ${cooldownStatus.remaining} remaining.`, "wait");
+    addLog(`Faucet on cooldown. ${chalk.yellow(cooldownStatus.remaining)} remaining.`, "wait");
   }
 
-  // 2. Swaps (USDT -> LOP)
+  addLog(chalk.magenta(`--- Starting ${SWAP_REPETITIONS} Swaps ---`), "info");
   let successfulSwaps = 0;
   for (let attempt = 1; attempt <= SWAP_REPETITIONS; attempt++) {
     if (shouldStop) {
-      addLog(`Swap attempts interrupted.`, "info");
+      addLog(`Swap attempts interrupted by user.`, "info");
       break;
     }
-    addLog(`Starting Swap Attempt ${attempt}/${SWAP_REPETITIONS}...`, "info");
+    addLog(chalk.bgBlue.white.bold(` Swap Attempt ${attempt}/${SWAP_REPETITIONS} `), "info");
     const swapDetails = getSwapDetailsUsdtToLop();
     try {
       const swapApiData = await sendSwapPrompt(wallet.address, swapDetails.amountStr, swapDetails.inToken, swapDetails.outToken);
@@ -488,73 +519,100 @@ async function runDailyActivityForWallet(privateKey) {
       if (receipt) {
         successfulSwaps++;
         await logTransactionApi(wallet.address, receipt.hash, swapApiData.amount.toString(), swapApiData.usdValue || 0, swapDetails.inToken, swapDetails.outToken);
-        await fetchAccountBalances(provider, wallet.address);
+        await fetchAccountBalances(provider, wallet.address); // Fetch balances after each successful swap
         if (successfulSwaps < SWAP_REPETITIONS && !shouldStop) {
-          const randomDelay = Math.floor(Math.random() * (30000 - 15000 + 1)) + 15000;
-          addLog(`Waiting ${Math.floor(randomDelay / 1000)}s before next swap...`, "wait");
+          const randomDelay = Math.floor(Math.random() * (25000 - 10000 + 1)) + 10000; // 10-25 detik
+          addLog(`Waiting ${chalk.yellow(Math.floor(randomDelay / 1000) + "s")} before next swap...`, "wait");
           await sleep(randomDelay);
         }
       } else {
           addLog(`Swap ${attempt} did not complete successfully.`, "warn");
+           if (attempt < SWAP_REPETITIONS && !shouldStop) { // Add delay even if swap fails before next attempt
+            const errorDelay = Math.floor(Math.random() * (10000 - 5000 + 1)) + 5000; // 5-10s
+            addLog(`Waiting ${chalk.yellow(Math.floor(errorDelay / 1000) + "s")} after failed swap attempt...`, "wait");
+            await sleep(errorDelay);
+          }
       }
     } catch (error) {
       addLog(`Swap ${attempt}: Main swap process failed: ${error.message}`, "error");
-      await sleep(5000);
+      if (attempt < SWAP_REPETITIONS && !shouldStop) { // Add delay after error
+        const errorDelay = Math.floor(Math.random() * (10000 - 5000 + 1)) + 5000; // 5-10s
+        addLog(`Waiting ${chalk.yellow(Math.floor(errorDelay / 1000) + "s")} after error...`, "wait");
+        await sleep(errorDelay);
+      }
+    }
+    if (attempt < SWAP_REPETITIONS && !shouldStop) {
+        addLog("---", "info"); // Separator between swap attempts
     }
   }
-  addLog(`Completed ${successfulSwaps}/${SWAP_REPETITIONS} successful USDT->LOP swaps.`, "info");
+  addLog(chalk.magenta("--- Swaps Finished ---"), "info");
+  addLog(`Completed ${chalk.greenBright(successfulSwaps)}/${SWAP_REPETITIONS} successful USDT->LOP swaps.`, "info");
 
-  // 3. Fetch Points from API
+  addLog(chalk.magenta("--- Fetching Points ---"), "info");
   await fetchPointsApi(wallet.address);
   
-  nonceTracker = {}; // Reset nonce for the wallet at the end of its run.
+  nonceTracker = {}; 
 
   if (shouldStop) {
-    addLog("Daily activity was stopped prematurely.", "warn");
+    addLog("Daily activity was stopped prematurely by user.", "warn");
     const stopCheckStart = Date.now();
-    while(activeProcesses > 0 && (Date.now() - stopCheckStart < 30000)) {
+    while(activeProcesses > 0 && (Date.now() - stopCheckStart < 30000)) { // Max 30s wait
         addLog(`Waiting for ${activeProcesses} active process(es) to complete...`, "info");
         await sleep(1000);
     }
     if(activeProcesses > 0) addLog(`Warning: ${activeProcesses} process(es) still active after stop timeout.`, "warn");
   }
-  return overallSuccess && !shouldStop;
+  return overallSuccess && !shouldStop; // overallSuccess is currently always true, consider if it should change based on swap success rate
 }
 
 // --- Main Execution ---
 async function main() {
-  addLog("Script starting up...", "info");
+  addLog(chalk.bgGreen.black.bold(" Script Starting Up... "), "info");
   process.on("unhandledRejection", (reason, promise) => {
     const errReason = reason instanceof Error ? reason.message : reason;
-    addLog(`Unhandled Rejection at: ${promise}, reason: ${errReason}`, "error");
-    if (reason instanceof Error && reason.stack) console.error(reason.stack);
+    addLog(`Unhandled Rejection. Reason: ${errReason}`, "error"); 
+    if (reason instanceof Error && reason.stack) {
+        console.error(chalk.redBright(reason.stack)); 
+    }
   });
   process.on("uncaughtException", (error) => {
     addLog(`Uncaught Exception: ${error.message}`, "error");
-    console.error(error.stack);
-    shouldStop = true; process.exitCode = 1;
+    if (error.stack) {
+        console.error(chalk.redBright(error.stack));
+    }
+    shouldStop = true; 
+    process.exitCode = 1;
   });
   process.on('SIGINT', () => {
-    addLog('SIGINT received. Graceful shutdown initiated...', 'warn');
+    addLog(chalk.bgYellow.black.bold(' SIGINT received. Graceful shutdown initiated... '), 'warn');
     shouldStop = true;
-    setTimeout(() => { addLog('Graceful shutdown timeout. Forcing exit.', 'error'); process.exit(1); }, 30000);
+    // Give time for ongoing processes to notice 'shouldStop'
+    // This timeout is a final safeguard if 'activeProcesses' check in runDailyActivity doesn't exit cleanly
+    setTimeout(() => { 
+        addLog('Graceful shutdown final timeout. Forcing exit.', 'error'); 
+        process.exit(1); 
+    }, 35000); // Give it a bit more than the internal checks
   });
 
-  if (!THE_PRIVATE_KEY || !THE_PRIVATE_KEY.startsWith('0x') || THE_PRIVATE_KEY.length !== 66) { // Basic PK check
+  if (!THE_PRIVATE_KEY || !THE_PRIVATE_KEY.startsWith('0x') || THE_PRIVATE_KEY.length !== 66) {
     addLog("PRIVATE_KEY not found or invalid in environment variables (.env). Please set it correctly (e.g., PRIVATE_KEY=0x...).", "error");
     process.exitCode = 1;
   } else {
     try {
       const success = await runDailyActivityForWallet(THE_PRIVATE_KEY);
-      process.exitCode = success ? 0 : 1;
+      if (shouldStop && process.exitCode === undefined) { // If stopped by SIGINT but no other error set exitCode
+        process.exitCode = 1; 
+      } else if (process.exitCode === undefined) {
+        process.exitCode = success ? 0 : 1;
+      }
     } catch (error) {
       addLog(`Critical error in script execution: ${error.message}`, "error");
-      if (error.stack) console.error(error.stack);
+      if (error.stack) console.error(chalk.redBright(error.stack));
       process.exitCode = 1;
     }
   }
   
-  addLog(`Script execution finished. Exit code: ${process.exitCode || 0}.`, "info");
+  addLog(chalk.bgRed.white.bold(` Script Execution Finished. Exit Code: ${process.exitCode || 0}. `), "info");
   if(activeProcesses > 0) addLog(`Warning: ${activeProcesses} process(es) might still be active on exit.`, "warn");
   process.exit(process.exitCode || 0);
 }
