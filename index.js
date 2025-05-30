@@ -1,12 +1,18 @@
 import { ethers } from "ethers";
 import axios from "axios";
-import 'dotenv/config';
-import chalk from 'chalk';
+import 'dotenv/config'; 
+import chalk from 'chalk';   
 
 // --- Konfigurasi Hardcoded & Environment ---
 const SWAP_REPETITIONS = 10; 
 const RPC_URL = process.env.RPC_URL || "https://0g-testnet-rpc.astrostake.xyz";
 const THE_PRIVATE_KEY = process.env.PRIVATE_KEY;
+
+const INITIAL_USDT_TO_LOP_SWAPS = 3; 
+const MIN_LOP_FOR_LOP_TO_USDT_SWAP = 0.5; 
+const MIN_LOP_AMOUNT_TO_SWAP = 0.1; 
+const MAX_LOP_PERCENTAGE_TO_SWAP = 0.5; 
+const MAX_ABSOLUTE_LOP_TO_SWAP = 0.5; 
 
 // --- Alamat Kontrak & API ---
 const USDT_ADDRESS = "0xe6c489B6D3eecA451D60cfda4782e9E727490477";
@@ -53,92 +59,42 @@ function getShortHash(hash) {
 
 function addLog(message, type = "info") {
   if (type === "debug" && !isDebug) return;
-
   const timestamp = new Date().toLocaleTimeString('id-ID', { 
-    hour12: false, 
-    hour: '2-digit', 
-    minute: '2-digit', 
-    second: '2-digit' 
+    hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' 
   });
-
-  let levelPrefix;
-  let coloredMessage = message;
-  let icon = "";
-
+  let levelPrefix; let coloredMessage = message; let icon = "";
   switch (type.toUpperCase()) {
-    case "INFO":
-      levelPrefix = chalk.blue.bold(`[INFO]   `);
-      coloredMessage = chalk.white(message);
-      break;
-    case "SUCCESS":
-      icon = chalk.greenBright("✔ ");
-      levelPrefix = chalk.green.bold(`[SUCCESS]`);
-      coloredMessage = chalk.greenBright(message);
-      break;
-    case "ERROR":
-      icon = chalk.redBright("✖ ");
-      levelPrefix = chalk.red.bold(`[ERROR]  `);
-      coloredMessage = chalk.redBright.bold(message);
-      break;
-    case "WAIT":
-      icon = chalk.yellowBright("🕒 ");
-      levelPrefix = chalk.yellow.bold(`[WAIT]   `);
-      coloredMessage = chalk.yellow(message);
-      break;
-    case "DEBUG":
-      levelPrefix = chalk.magenta.bold(`[DEBUG]  `);
-      coloredMessage = chalk.magenta(message);
-      break;
-    default:
-      levelPrefix = chalk.gray.bold(`[${type.toUpperCase()}]`);
-      coloredMessage = chalk.gray(message);
+    case "INFO": levelPrefix = chalk.blue.bold(`[INFO]   `); coloredMessage = chalk.white(message); break;
+    case "SUCCESS": icon = chalk.greenBright("✔ "); levelPrefix = chalk.green.bold(`[SUCCESS]`); coloredMessage = chalk.greenBright(message); break;
+    case "ERROR": icon = chalk.redBright("✖ "); levelPrefix = chalk.red.bold(`[ERROR]  `); coloredMessage = chalk.redBright.bold(message); break;
+    case "WAIT": icon = chalk.yellowBright("🕒 "); levelPrefix = chalk.yellow.bold(`[WAIT]   `); coloredMessage = chalk.yellow(message); break;
+    case "DEBUG": levelPrefix = chalk.magenta.bold(`[DEBUG]  `); coloredMessage = chalk.magenta(message); break;
+    default: levelPrefix = chalk.gray.bold(`[${type.toUpperCase()}]`); coloredMessage = chalk.gray(message);
   }
-
   const walletTag = chalk.cyanBright('[Wallet]');
   const finalLog = `${chalk.dim.gray(`[${timestamp}]`)} ${levelPrefix} ${icon}${walletTag} ${coloredMessage}`;
-  
-  if (type.toUpperCase() === "ERROR") {
-    console.error(finalLog);
-  } else {
-    console.log(finalLog);
-  }
+  if (type.toUpperCase() === "ERROR") { console.error(finalLog); } else { console.log(finalLog); }
 }
 
-
 async function sleep(ms) {
-  if (shouldStop) {
-    addLog("Sleep interrupted due to stop request.", "info");
-    return;
-  }
+  if (shouldStop) { addLog("Sleep interrupted.", "info"); return; }
   activeProcesses++;
   try {
     await new Promise((resolve) => {
       const timeout = setTimeout(resolve, ms);
       const checkStopInterval = setInterval(() => {
-        if (shouldStop) {
-          clearTimeout(timeout);
-          clearInterval(checkStopInterval);
-          resolve();
-        }
+        if (shouldStop) { clearTimeout(timeout); clearInterval(checkStopInterval); resolve(); }
       }, 200);
-      if (timeout.unref) {
-          timeout.unref(); 
-      }
+      if (timeout.unref) { timeout.unref(); }
       setTimeout(() => clearInterval(checkStopInterval), ms);
     });
-  } finally {
-    activeProcesses = Math.max(0, activeProcesses - 1);
-  }
+  } finally { activeProcesses = Math.max(0, activeProcesses - 1); }
 }
 
 // --- Network & Blockchain Interaction ---
 function getProvider() {
-    try {
-        const provider = new ethers.JsonRpcProvider(RPC_URL);
-        return provider;
-    } catch (error) {
-        addLog(`Failed to initialize provider: ${error.message}`, "error");
-        throw new Error("Failed to initialize provider.");
+    try { return new ethers.JsonRpcProvider(RPC_URL); } catch (error) {
+        addLog(`Failed to initialize provider: ${error.message}`, "error"); throw new Error("Failed to initialize provider.");
     }
 }
 
@@ -152,39 +108,27 @@ function getApiHeaders(customHeaders = {}) {
 }
 
 async function makeApiRequest(method, url, data, customHeaders = {}, maxRetries = 3, retryDelay = 2000) {
-  activeProcesses++;
-  let lastError = null;
+  activeProcesses++; let lastError = null;
   try {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      if (shouldStop) {
-        addLog(`API request to ${url} cancelled.`, "info");
-        throw new Error("Process stopped");
-      }
+      if (shouldStop) { addLog(`API request to ${url} cancelled.`, "info"); throw new Error("Process stopped"); }
       try {
         const headers = getApiHeaders(customHeaders);
-        const config = { method, url, data, headers, timeout: 20000 }; // Timeout diperpanjang jadi 20s
+        const config = { method, url, data, headers, timeout: 20000 };
         if (isDebug && data) addLog(`Sending payload to ${url}: ${JSON.stringify(data, null, 2)}`, "debug");
-        
         const response = await axios(config);
         if (isDebug) addLog(`Received response from ${url}: ${JSON.stringify(response.data, null, 2)}`, "debug");
         return response.data;
       } catch (error) {
-        lastError = error;
-        let errMsg = `Attempt ${attempt}/${maxRetries} API request to ${url} failed`;
+        lastError = error; let errMsg = `Attempt ${attempt}/${maxRetries} API request to ${url} failed`;
         if (error.response) errMsg += `: HTTP ${error.response.status} - ${JSON.stringify(error.response.data || error.response.statusText)}`;
-        else if (error.request) errMsg += `: No response received`;
-        else errMsg += `: ${error.message}`;
+        else if (error.request) errMsg += `: No response received`; else errMsg += `: ${error.message}`;
         addLog(errMsg, "error");
-        if (attempt < maxRetries) {
-          addLog(`Retrying API in ${retryDelay/1000}s...`, "wait");
-          await sleep(retryDelay);
-        }
+        if (attempt < maxRetries) { addLog(`Retrying API in ${retryDelay/1000}s...`, "wait"); await sleep(retryDelay); }
       }
     }
     throw new Error(`API request to ${url} failed after ${maxRetries} attempts: ${lastError?.message || 'Unknown API error'}`);
-  } finally {
-    activeProcesses = Math.max(0, activeProcesses - 1);
-  }
+  } finally { activeProcesses = Math.max(0, activeProcesses - 1); }
 }
 
 async function fetchAccountBalances(provider, walletAddress) {
@@ -192,23 +136,17 @@ async function fetchAccountBalances(provider, walletAddress) {
         const aogiBalanceRaw = await provider.getBalance(walletAddress);
         const usdtContract = new ethers.Contract(USDT_ADDRESS, ERC20_ABI, provider);
         const lopContract = new ethers.Contract(LOP_ADDRESS, ERC20_ABI, provider);
-
         const [usdtBalanceRaw, lopBalanceRaw, usdtDecimalsRaw, lopDecimalsRaw] = await Promise.all([
             usdtContract.balanceOf(walletAddress).catch(() => ethers.toBigInt(0)),
             lopContract.balanceOf(walletAddress).catch(() => ethers.toBigInt(0)),
-            usdtContract.decimals().catch(() => 18),
-            lopContract.decimals().catch(() => 18)
+            usdtContract.decimals().catch(() => 18), lopContract.decimals().catch(() => 18)
         ]);
-        
-        const usdtDecimals = Number(usdtDecimalsRaw);
-        const lopDecimals = Number(lopDecimalsRaw);
-
+        const usdtDecimals = Number(usdtDecimalsRaw); const lopDecimals = Number(lopDecimalsRaw);
         const aogiBalance = ethers.formatEther(aogiBalanceRaw);
         const usdtBalance = ethers.formatUnits(usdtBalanceRaw, usdtDecimals);
         const lopBalance = ethers.formatUnits(lopBalanceRaw, lopDecimals);
-
         addLog(`(${getShortAddress(walletAddress)}) Balances: AOGI: ${chalk.bold(parseFloat(aogiBalance).toFixed(4))}, USDT: ${chalk.bold(parseFloat(usdtBalance).toFixed(2))}, LOP: ${chalk.bold(parseFloat(lopBalance).toFixed(2))}`, "info");
-        return { aogiBalance, usdtBalance, lopBalance };
+        return { aogiBalance, usdtBalance, lopBalance }; // Return string values as they are for consistency
     } catch (error) {
         addLog(`(${getShortAddress(walletAddress)}): Failed to fetch balances: ${error.message}`, "error");
         return { aogiBalance: "0.00", usdtBalance: "0.00", lopBalance: "0.00" };
@@ -229,12 +167,8 @@ async function getNextNonce(provider, walletAddress) {
     try {
         const fallbackNonce = await provider.getTransactionCount(walletAddress, "latest");
         addLog(`Using fallback nonce for ${getShortAddress(walletAddress)}: ${chalk.yellow(fallbackNonce)}`, "warn");
-        nonceTracker[walletAddress] = fallbackNonce;
-        return fallbackNonce;
-    } catch (e) {
-        addLog(`Error fetching fallback nonce: ${e.message}`, "error");
-        throw e;
-    }
+        nonceTracker[walletAddress] = fallbackNonce; return fallbackNonce;
+    } catch (e) { addLog(`Error fetching fallback nonce: ${e.message}`, "error"); throw e; }
   }
 }
 
@@ -242,17 +176,13 @@ async function checkFaucetCooldown(wallet, provider) {
   try {
     const faucet = new ethers.Contract(FAUCET_ADDRESS, FAUCET_ABI, provider);
     const lastRequest = await faucet.lastRequest(wallet.address);
-    const cooldown = BigInt(1 * 24 * 60 * 60);
-    const currentTime = BigInt(Math.floor(Date.now() / 1000));
+    const cooldown = BigInt(1 * 24 * 60 * 60); const currentTime = BigInt(Math.floor(Date.now() / 1000));
     const timeSinceLastRequest = currentTime - BigInt(lastRequest.toString());
-    
     if (timeSinceLastRequest < cooldown) {
       const remainingSeconds = cooldown - timeSinceLastRequest;
-      const hours = remainingSeconds / BigInt(3600);
-      const minutes = (remainingSeconds % BigInt(3600)) / BigInt(60);
+      const hours = remainingSeconds / BigInt(3600); const minutes = (remainingSeconds % BigInt(3600)) / BigInt(60);
       return { canClaim: false, remaining: `${hours}h ${minutes}m` };
-    }
-    return { canClaim: true, remaining: "0h 0m" };
+    } return { canClaim: true, remaining: "0h 0m" };
   } catch (error) {
     addLog(`Failed to check faucet cooldown: ${error.message}`, "error");
     return { canClaim: false, remaining: "Unknown" };
@@ -260,10 +190,7 @@ async function checkFaucetCooldown(wallet, provider) {
 }
 
 async function claimFaucet(wallet, provider) {
-  if (shouldStop) {
-    addLog(`Faucet claim cancelled.`, "info");
-    return false;
-  }
+  if (shouldStop) { addLog(`Faucet claim cancelled.`, "info"); return false; }
   const signer = wallet.connect(provider);
   const faucet = new ethers.Contract(FAUCET_ADDRESS, FAUCET_ABI, signer);
   addLog(`(${getShortAddress(wallet.address)}): Attempting to claim USDT faucet...`, "info");
@@ -276,26 +203,19 @@ async function claimFaucet(wallet, provider) {
         maxPriorityFeePerGas: feeData.maxPriorityFeePerGas || ethers.parseUnits("1", "gwei")
     };
     if(!txOverrides.maxFeePerGas && !txOverrides.maxPriorityFeePerGas && feeData.gasPrice) {
-        txOverrides.gasPrice = feeData.gasPrice;
-        delete txOverrides.maxFeePerGas; delete txOverrides.maxPriorityFeePerGas;
+        txOverrides.gasPrice = feeData.gasPrice; delete txOverrides.maxFeePerGas; delete txOverrides.maxPriorityFeePerGas;
     }
     const tx = await faucet.requestTokens(txOverrides);
     addLog(`Faucet claim tx sent. Hash: ${chalk.blueBright(getShortHash(tx.hash))}`, "success");
-    await tx.wait();
-    addLog(`Successfully claimed 100 USDT from faucet.`, "success");
-    return true;
+    await tx.wait(); addLog(`Successfully claimed 100 USDT from faucet.`, "success"); return true;
   } catch (error) {
     addLog(`Failed to claim faucet: ${error.message}`, "error");
-    if (error.message.includes("nonce")) nonceTracker[wallet.address] = undefined;
-    return false;
+    if (error.message.includes("nonce")) nonceTracker[wallet.address] = undefined; return false;
   }
 }
 
 async function checkAndApproveToken(wallet, provider, tokenAddress, amountInWei, tokenName, swapCount) {
-  if (shouldStop) {
-    addLog(`Approval for ${tokenName} cancelled.`, "info");
-    return false;
-  }
+  if (shouldStop) { addLog(`Approval for ${tokenName} cancelled.`, "info"); return false; }
   const signer = wallet.connect(provider);
   const token = new ethers.Contract(tokenAddress, ERC20_ABI, signer);
   addLog(`Swap ${swapCount}: Checking balance & allowance for ${chalk.yellow(tokenName)}...`, "debug");
@@ -317,31 +237,47 @@ async function checkAndApproveToken(wallet, provider, tokenAddress, amountInWei,
         maxPriorityFeePerGas: feeData.maxPriorityFeePerGas || ethers.parseUnits("1", "gwei")
       };
       if(!txOverrides.maxFeePerGas && !txOverrides.maxPriorityFeePerGas && feeData.gasPrice) {
-        txOverrides.gasPrice = feeData.gasPrice;
-        delete txOverrides.maxFeePerGas; delete txOverrides.maxPriorityFeePerGas;
+        txOverrides.gasPrice = feeData.gasPrice; delete txOverrides.maxFeePerGas; delete txOverrides.maxPriorityFeePerGas;
       }
       const tx = await token.approve(ROUTER_ADDRESS, ethers.MaxUint256, txOverrides);
       addLog(`Swap ${swapCount}: Approval for ${chalk.yellow(tokenName)} sent. Hash: ${chalk.blueBright(getShortHash(tx.hash))}`, "success");
-      await tx.wait();
-      addLog(`Swap ${swapCount}: ${chalk.yellow(tokenName)} approved.`, "success");
-    } else {
-      addLog(`Swap ${swapCount}: Sufficient ${chalk.yellow(tokenName)} allowance present.`, "debug");
-    }
+      await tx.wait(); addLog(`Swap ${swapCount}: ${chalk.yellow(tokenName)} approved.`, "success");
+    } else { addLog(`Swap ${swapCount}: Sufficient ${chalk.yellow(tokenName)} allowance present.`, "debug"); }
     return true;
   } catch (error) {
     addLog(`Swap ${swapCount}: Error approving/checking ${chalk.yellow(tokenName)}: ${error.message}`, "error");
-    if (error.message.includes("nonce")) nonceTracker[wallet.address] = undefined;
-    return false;
+    if (error.message.includes("nonce")) nonceTracker[wallet.address] = undefined; return false;
   }
 }
 
 function getSwapDetailsUsdtToLop() {
-  const minUsdt = 5; const maxUsdt = 10; // Anda bisa sesuaikan rentang ini
+  const minUsdt = 5; const maxUsdt = 10;
   const amount = (Math.random() * (maxUsdt - minUsdt) + minUsdt).toFixed(2);
   addLog(`Preparing USDT -> LOP swap for ${chalk.yellow(amount + " USDT")}.`, "debug");
   return { 
     amountStr: amount.toString(), inToken: "USDT", outToken: "LOP", 
     inTokenAddress: USDT_ADDRESS, outTokenAddress: LOP_ADDRESS
+  };
+}
+
+function getSwapDetailsLopToUsdt(currentLopBalance) {
+  const numericLopBalance = parseFloat(currentLopBalance);
+  if (isNaN(numericLopBalance) || numericLopBalance < MIN_LOP_AMOUNT_TO_SWAP) {
+    addLog(`Saldo LOP tidak mencukupi (${numericLopBalance.toFixed(4)}) untuk LOP->USDT (min: ${MIN_LOP_AMOUNT_TO_SWAP}).`, "warn");
+    return null;
+  }
+  let amountToSwap = Math.min( numericLopBalance * MAX_LOP_PERCENTAGE_TO_SWAP, MAX_ABSOLUTE_LOP_TO_SWAP );
+  amountToSwap = Math.max(amountToSwap, MIN_LOP_AMOUNT_TO_SWAP);
+  amountToSwap = Math.min(amountToSwap, numericLopBalance);
+  if (amountToSwap < MIN_LOP_AMOUNT_TO_SWAP) {
+     addLog(`Jumlah LOP yang akan di-swap (${amountToSwap.toFixed(4)}) terlalu kecil (min: ${MIN_LOP_AMOUNT_TO_SWAP}).`, "warn");
+    return null;
+  }
+  const amountStr = amountToSwap.toFixed(4);
+  addLog(`Preparing LOP -> USDT swap for ${chalk.yellow(amountStr + " LOP")}. Saldo LOP: ${numericLopBalance.toFixed(4)}`, "debug");
+  return {
+    amountStr: amountStr, inToken: "LOP", outToken: "USDT",
+    inTokenAddress: LOP_ADDRESS, outTokenAddress: USDT_ADDRESS,
   };
 }
 
@@ -354,31 +290,21 @@ async function sendSwapPrompt(walletAddress, amountStr, inToken, outToken) {
         question: prompt, answer: "",
         baseMessage: { lc: 1, type: "constructor", id: ["langchain_core", "messages", "HumanMessage"], kwargs: { content: prompt, additional_kwargs: {}, response_metadata: {}}},
         type: null, priceHistorical: null, priceHistoricalData: null, isSynchronized: false, isFallback: false
-    }],
-    testnetOnly: true
+    }], testnetOnly: true
   };
   try {
     const response = await makeApiRequest("post", `${API_BASE_URL}/ask/ask`, payload);
     if (response.questions && response.questions[0].answer) {
       const traderContent = response.questions[0].answer.find(a => a.type === "trader")?.content;
-      if (traderContent) {
-        addLog(`Received swap data from API.`, "debug");
-        return JSON.parse(traderContent);
-      }
+      if (traderContent) { addLog(`Received swap data from API.`, "debug"); return JSON.parse(traderContent); }
     }
     addLog(`Invalid API response for swap prompt. Resp: ${JSON.stringify(response)}`, "error");
     throw new Error("Invalid response from AI API for swap prompt");
-  } catch (error) {
-    addLog(`Failed to send/parse swap prompt: ${error.message}`, "error");
-    throw error;
-  }
+  } catch (error) { addLog(`Failed to send/parse swap prompt: ${error.message}`, "error"); throw error; }
 }
 
 async function executeSwap(wallet, provider, swapApiData, swapCount, inTokenName, outTokenName, inTokenAddress) {
-  if (shouldStop) {
-    addLog(`Swap ${swapCount} cancelled.`, "info");
-    return null;
-  }
+  if (shouldStop) { addLog(`Swap ${swapCount} cancelled.`, "info"); return null; }
   const signer = wallet.connect(provider);
   const router = new ethers.Contract(ROUTER_ADDRESS, ROUTER_ABI, signer);
   addLog(`Swap ${swapCount}: Preparing to swap ${chalk.yellow(swapApiData.amount + " " + inTokenName)} for ${chalk.yellow(outTokenName)}.`, "info");
@@ -386,37 +312,26 @@ async function executeSwap(wallet, provider, swapApiData, swapCount, inTokenName
     const inTokenContract = new ethers.Contract(inTokenAddress, ERC20_ABI, provider);
     const inTokenDecimals = await inTokenContract.decimals().catch(() => 18);
     const amountIn = ethers.parseUnits(swapApiData.amount.toString(), Number(inTokenDecimals));
-
     if (!swapApiData.path || swapApiData.path.length < 2) {
-        addLog(`Swap ${swapCount}: Invalid path received from API: ${swapApiData.path}`, "error");
-        return null;
+        addLog(`Swap ${swapCount}: Invalid path from API: ${swapApiData.path}`, "error"); return null;
     }
     const outTokenAddressFromPath = swapApiData.path[swapApiData.path.length - 1];
     const outTokenContract = new ethers.Contract(outTokenAddressFromPath, ERC20_ABI, provider);
     const outTokenDecimals = await outTokenContract.decimals().catch(() => 18); 
     const amountOutMin = ethers.parseUnits(swapApiData.amountOutMin.toString(), Number(outTokenDecimals)); 
-
-    const path = swapApiData.path;
-    const to = signer.address;
-    const deadline = Math.floor(Date.now() / 1000) + 600;
-
+    const path = swapApiData.path; const to = signer.address; const deadline = Math.floor(Date.now() / 1000) + 600;
     const isApproved = await checkAndApproveToken(wallet, provider, inTokenAddress, amountIn, inTokenName, swapCount);
-    if (!isApproved) {
-      addLog(`Swap ${swapCount}: Approval failed/insufficient balance. Skipping.`, "warn");
-      return null;
-    }
+    if (!isApproved) { addLog(`Swap ${swapCount}: Approval failed/insufficient balance. Skipping.`, "warn"); return null; }
     addLog(`Swap ${swapCount}: Executing swap on router... (AmountIn: ${chalk.yellow(ethers.formatUnits(amountIn, Number(inTokenDecimals)) + " " + inTokenName)}, AmountOutMin: ${chalk.yellow(ethers.formatUnits(amountOutMin, Number(outTokenDecimals)) + " " + outTokenName)})`, "info");
     const nonce = await getNextNonce(provider, signer.address);
     const feeData = await provider.getFeeData();
     const txOverrides = {
-        gasLimit: 300000n, 
-        nonce: nonce,
+        gasLimit: 300000n, nonce: nonce,
         maxFeePerGas: feeData.maxFeePerGas || ethers.parseUnits("1.5", "gwei"),
         maxPriorityFeePerGas: feeData.maxPriorityFeePerGas || ethers.parseUnits("1", "gwei")
     };
      if(!txOverrides.maxFeePerGas && !txOverrides.maxPriorityFeePerGas && feeData.gasPrice) {
-        txOverrides.gasPrice = feeData.gasPrice;
-        delete txOverrides.maxFeePerGas; delete txOverrides.maxPriorityFeePerGas;
+        txOverrides.gasPrice = feeData.gasPrice; delete txOverrides.maxFeePerGas; delete txOverrides.maxPriorityFeePerGas;
     }
     const tx = await router.swapExactTokensForTokens(amountIn, amountOutMin, path, to, deadline, txOverrides);
     addLog(`Swap ${swapCount}: Tx sent. Hash: ${chalk.blueBright(getShortHash(tx.hash))}`, "success");
@@ -425,11 +340,8 @@ async function executeSwap(wallet, provider, swapApiData, swapCount, inTokenName
     return receipt;
   } catch (error) {
     addLog(`Swap ${swapCount}: Swap failed: ${error.message}`, "error");
-    if (error.stack && isDebug) {
-        console.error(chalk.redBright(error.stack));
-    }
-    if (error.message.includes("nonce")) nonceTracker[wallet.address] = undefined;
-    return null;
+    if (error.stack && isDebug) { console.error(chalk.redBright(error.stack)); }
+    if (error.message.includes("nonce")) nonceTracker[wallet.address] = undefined; return null;
   }
 }
 
@@ -442,14 +354,9 @@ async function logTransactionApi(walletAddress, txHash, amountInHuman, usdValue,
   };
   try {
     const response = await makeApiRequest("post", `${API_BASE_URL}/log/logTransaction`, payload);
-    if (response.status === "success") {
-      addLog(`Tx ${chalk.blueBright(getShortHash(txHash))} reported to API.`, "success");
-    } else {
-      addLog(`Failed to report tx ${chalk.blueBright(getShortHash(txHash))} to API: ${response.message || JSON.stringify(response)}`, "error");
-    }
-  } catch (error) {
-    addLog(`Error reporting tx ${chalk.blueBright(getShortHash(txHash))} to API: ${error.message}`, "error");
-  }
+    if (response.status === "success") { addLog(`Tx ${chalk.blueBright(getShortHash(txHash))} reported to API.`, "success"); }
+    else { addLog(`Failed to report tx ${chalk.blueBright(getShortHash(txHash))} to API: ${response.message || JSON.stringify(response)}`, "error"); }
+  } catch (error) { addLog(`Error reporting tx ${chalk.blueBright(getShortHash(txHash))} to API: ${error.message}`, "error"); }
 }
 
 async function fetchPointsApi(walletAddress) {
@@ -459,19 +366,15 @@ async function fetchPointsApi(walletAddress) {
         const response = await makeApiRequest("get", `${API_BASE_URL}/points/${walletAddress}`);
         if (response && response.mainnetPoints !== undefined) {
             addLog(`Points - Mainnet: ${chalk.bold(response.mainnetPoints)}, Testnet: ${chalk.bold(response.testnetPoints)}, Total: ${chalk.bold(response.totalPoints)}`, "success");
-        } else {
-            addLog(`Invalid points API response. ${JSON.stringify(response)}`, "warn");
-        }
-    } catch (error) {
-        addLog(`Failed to fetch points from API: ${error.message}`, "error");
-    }
+        } else { addLog(`Invalid points API response. ${JSON.stringify(response)}`, "warn"); }
+    } catch (error) { addLog(`Failed to fetch points from API: ${error.message}`, "error"); }
 }
 
 // --- Main Activity Logic ---
 async function runDailyActivityForWallet(privateKey) {
   addLog(chalk.bgCyan.black.bold(" Starting daily activity cycle "), "info");
-  addLog(`Auto Swap (USDT->LOP): ${chalk.yellow(SWAP_REPETITIONS + "x")}.`, "info");
-  let overallSuccess = true;
+  addLog(`Auto Swap: ${chalk.yellow(SWAP_REPETITIONS + "x total attempts")}. Initial USDT->LOP: ${chalk.yellow(INITIAL_USDT_TO_LOP_SWAPS + "x")}`, "info");
+  let overallActivitySuccess = true; // Tracks if the entire activity had any major issues
 
   let provider;
   try {
@@ -479,7 +382,7 @@ async function runDailyActivityForWallet(privateKey) {
     const network = await provider.getNetwork();
     addLog(`Connected to network: ${chalk.green(network.name)} (Chain ID: ${chalk.green(network.chainId)})`, "info");
   } catch (error) {
-    addLog(`Failed to init/connect provider: ${error.message}. Exiting.`, "error");
+    addLog(`Failed to init/connect provider: ${error.message}. Exiting cycle.`, "error");
     return false;
   }
 
@@ -496,73 +399,103 @@ async function runDailyActivityForWallet(privateKey) {
       await sleep(5000);
       await fetchAccountBalances(provider, wallet.address);
     }
-  } else {
-    addLog(`Faucet on cooldown. ${chalk.yellow(cooldownStatus.remaining)} remaining.`, "wait");
-  }
+  } else { addLog(`Faucet on cooldown. ${chalk.yellow(cooldownStatus.remaining)} remaining.`, "wait"); }
 
   addLog(chalk.magenta(`--- Starting ${SWAP_REPETITIONS} Swaps ---`), "info");
-  let successfulSwaps = 0;
+  let successfulSwapsCount = 0;
   for (let attempt = 1; attempt <= SWAP_REPETITIONS; attempt++) {
-    if (shouldStop) {
-      addLog(`Swap attempts interrupted by user.`, "info");
-      break;
-    }
+    if (shouldStop) { addLog(`Swap attempts interrupted by user.`, "info"); break; }
     addLog(chalk.bgBlue.white.bold(` Swap Attempt ${attempt}/${SWAP_REPETITIONS} `), "info");
-    const swapDetails = getSwapDetailsUsdtToLop();
+    
+    let swapDetails; let chosenDirection = "";
+    if (attempt <= INITIAL_USDT_TO_LOP_SWAPS) {
+      addLog(`Attempt ${attempt}: Scheduled USDT -> LOP swap.`, "info");
+      swapDetails = getSwapDetailsUsdtToLop();
+      chosenDirection = "USDT -> LOP";
+    } else {
+      addLog(`Attempt ${attempt}: Considering LOP -> USDT swap.`, "info");
+      const currentBalances = await fetchAccountBalances(provider, wallet.address); // Fetch fresh balances
+      const lopBalance = parseFloat(currentBalances.lopBalance);
+      if (lopBalance >= MIN_LOP_FOR_LOP_TO_USDT_SWAP) {
+        addLog(`LOP balance (${chalk.yellow(lopBalance.toFixed(4))}) sufficient for LOP->USDT (threshold: ${MIN_LOP_FOR_LOP_TO_USDT_SWAP}).`, "info");
+        swapDetails = getSwapDetailsLopToUsdt(lopBalance);
+        if (swapDetails) { chosenDirection = "LOP -> USDT"; }
+        else {
+          addLog(`Could not prepare LOP->USDT details. Defaulting to USDT -> LOP.`, "info");
+          swapDetails = getSwapDetailsUsdtToLop(); chosenDirection = "USDT -> LOP (fallback LOP prep failed)";
+        }
+      } else {
+        addLog(`LOP balance (${chalk.yellow(lopBalance.toFixed(4))}) below threshold (${MIN_LOP_FOR_LOP_TO_USDT_SWAP}). Defaulting to USDT -> LOP.`, "info");
+        swapDetails = getSwapDetailsUsdtToLop(); chosenDirection = "USDT -> LOP (LOP balance low)";
+      }
+    }
+
+    if (!swapDetails) {
+        addLog(`Swap ${attempt}: Could not determine swap details. Skipping attempt.`, "warn");
+        if (attempt < SWAP_REPETITIONS && !shouldStop) {
+            const errorDelay = Math.floor(Math.random() * (7000 - 3000 + 1)) + 3000;
+            addLog(`Waiting ${chalk.yellow(Math.floor(errorDelay / 1000) + "s")} after failed detail generation...`, "wait");
+            await sleep(errorDelay);
+        }
+        continue;
+    }
+    addLog(`Swap ${attempt}: Direction: ${chalk.bold(chosenDirection)}, Amount: ${chalk.yellow(swapDetails.amountStr + " " + swapDetails.inToken)}.`, "info");
+
     try {
       const swapApiData = await sendSwapPrompt(wallet.address, swapDetails.amountStr, swapDetails.inToken, swapDetails.outToken);
       if (!swapApiData || !swapApiData.amount || !swapApiData.amountOutMin || !swapApiData.path) {
-          addLog(`Swap ${attempt}: Invalid data from API. Skipping. Data: ${JSON.stringify(swapApiData)}`, "error");
+          addLog(`Swap ${attempt}: Invalid data from API. Skipping swap. Data: ${JSON.stringify(swapApiData)}`, "error");
+          overallActivitySuccess = false; // Mark as not fully successful
+          if (attempt < SWAP_REPETITIONS && !shouldStop) {
+             const errorDelay = Math.floor(Math.random() * (10000 - 5000 + 1)) + 5000;
+             addLog(`Waiting ${chalk.yellow(Math.floor(errorDelay / 1000) + "s")} after API data error...`, "wait");
+             await sleep(errorDelay);
+          }
           continue;
       }
       const receipt = await executeSwap(wallet, provider, swapApiData, attempt, swapDetails.inToken, swapDetails.outToken, swapDetails.inTokenAddress);
       if (receipt) {
-        successfulSwaps++;
+        successfulSwapsCount++;
         await logTransactionApi(wallet.address, receipt.hash, swapApiData.amount.toString(), swapApiData.usdValue || 0, swapDetails.inToken, swapDetails.outToken);
-        await fetchAccountBalances(provider, wallet.address); // Fetch balances after each successful swap
-        if (successfulSwaps < SWAP_REPETITIONS && !shouldStop) {
-          const randomDelay = Math.floor(Math.random() * (25000 - 10000 + 1)) + 10000; // 10-25 detik
+        await fetchAccountBalances(provider, wallet.address);
+        if (successfulSwapsCount < SWAP_REPETITIONS && !shouldStop && attempt < SWAP_REPETITIONS) { // Check attempt < SWAP_REPETITIONS to ensure delay is not after last one
+          const randomDelay = Math.floor(Math.random() * (25000 - 10000 + 1)) + 10000;
           addLog(`Waiting ${chalk.yellow(Math.floor(randomDelay / 1000) + "s")} before next swap...`, "wait");
           await sleep(randomDelay);
         }
       } else {
-          addLog(`Swap ${attempt} did not complete successfully.`, "warn");
-           if (attempt < SWAP_REPETITIONS && !shouldStop) { // Add delay even if swap fails before next attempt
-            const errorDelay = Math.floor(Math.random() * (10000 - 5000 + 1)) + 5000; // 5-10s
-            addLog(`Waiting ${chalk.yellow(Math.floor(errorDelay / 1000) + "s")} after failed swap attempt...`, "wait");
+          addLog(`Swap ${attempt} did not complete successfully (executeSwap returned null).`, "warn");
+          overallActivitySuccess = false;
+           if (attempt < SWAP_REPETITIONS && !shouldStop) {
+            const errorDelay = Math.floor(Math.random() * (10000 - 5000 + 1)) + 5000;
+            addLog(`Waiting ${chalk.yellow(Math.floor(errorDelay / 1000) + "s")} after failed swap execution...`, "wait");
             await sleep(errorDelay);
           }
       }
     } catch (error) {
       addLog(`Swap ${attempt}: Main swap process failed: ${error.message}`, "error");
-      if (attempt < SWAP_REPETITIONS && !shouldStop) { // Add delay after error
-        const errorDelay = Math.floor(Math.random() * (10000 - 5000 + 1)) + 5000; // 5-10s
+      overallActivitySuccess = false;
+      if (attempt < SWAP_REPETITIONS && !shouldStop) {
+        const errorDelay = Math.floor(Math.random() * (10000 - 5000 + 1)) + 5000;
         addLog(`Waiting ${chalk.yellow(Math.floor(errorDelay / 1000) + "s")} after error...`, "wait");
         await sleep(errorDelay);
       }
     }
-    if (attempt < SWAP_REPETITIONS && !shouldStop) {
-        addLog("---", "info"); // Separator between swap attempts
-    }
+     if (attempt < SWAP_REPETITIONS && !shouldStop) { addLog(chalk.dim("---"), "info");}
   }
   addLog(chalk.magenta("--- Swaps Finished ---"), "info");
-  addLog(`Completed ${chalk.greenBright(successfulSwaps)}/${SWAP_REPETITIONS} successful USDT->LOP swaps.`, "info");
+  addLog(`Completed ${chalk.greenBright(successfulSwapsCount)}/${SWAP_REPETITIONS} successful swaps.`, "info");
 
   addLog(chalk.magenta("--- Fetching Points ---"), "info");
   await fetchPointsApi(wallet.address);
   
   nonceTracker = {}; 
 
-  if (shouldStop) {
-    addLog("Daily activity was stopped prematurely by user.", "warn");
-    const stopCheckStart = Date.now();
-    while(activeProcesses > 0 && (Date.now() - stopCheckStart < 30000)) { // Max 30s wait
-        addLog(`Waiting for ${activeProcesses} active process(es) to complete...`, "info");
-        await sleep(1000);
-    }
-    if(activeProcesses > 0) addLog(`Warning: ${activeProcesses} process(es) still active after stop timeout.`, "warn");
-  }
-  return overallSuccess && !shouldStop; // overallSuccess is currently always true, consider if it should change based on swap success rate
+  if (shouldStop) { addLog("Daily activity was stopped prematurely by user.", "warn"); }
+  
+  // Consider success if at least one swap was successful or if not stopped prematurely for critical errors
+  // For now, overallActivitySuccess flags if any operation within the loop failed (API error, swap execution error)
+  return overallActivitySuccess && !shouldStop; 
 }
 
 // --- Main Execution ---
@@ -571,39 +504,33 @@ async function main() {
   process.on("unhandledRejection", (reason, promise) => {
     const errReason = reason instanceof Error ? reason.message : reason;
     addLog(`Unhandled Rejection. Reason: ${errReason}`, "error"); 
-    if (reason instanceof Error && reason.stack) {
-        console.error(chalk.redBright(reason.stack)); 
-    }
+    if (reason instanceof Error && reason.stack) { console.error(chalk.redBright(reason.stack)); }
   });
   process.on("uncaughtException", (error) => {
     addLog(`Uncaught Exception: ${error.message}`, "error");
-    if (error.stack) {
-        console.error(chalk.redBright(error.stack));
-    }
-    shouldStop = true; 
-    process.exitCode = 1;
+    if (error.stack) { console.error(chalk.redBright(error.stack)); }
+    shouldStop = true; process.exitCode = 1;
   });
   process.on('SIGINT', () => {
     addLog(chalk.bgYellow.black.bold(' SIGINT received. Graceful shutdown initiated... '), 'warn');
     shouldStop = true;
-    // Give time for ongoing processes to notice 'shouldStop'
-    // This timeout is a final safeguard if 'activeProcesses' check in runDailyActivity doesn't exit cleanly
     setTimeout(() => { 
         addLog('Graceful shutdown final timeout. Forcing exit.', 'error'); 
+        // Ensure we really exit, even if some async ops are stuck despite shouldStop
         process.exit(1); 
-    }, 35000); // Give it a bit more than the internal checks
+    }, 35000); 
   });
 
   if (!THE_PRIVATE_KEY || !THE_PRIVATE_KEY.startsWith('0x') || THE_PRIVATE_KEY.length !== 66) {
-    addLog("PRIVATE_KEY not found or invalid in environment variables (.env). Please set it correctly (e.g., PRIVATE_KEY=0x...).", "error");
+    addLog("PRIVATE_KEY not found or invalid in .env. Please set it (e.g., PRIVATE_KEY=0x...).", "error");
     process.exitCode = 1;
   } else {
     try {
-      const success = await runDailyActivityForWallet(THE_PRIVATE_KEY);
-      if (shouldStop && process.exitCode === undefined) { // If stopped by SIGINT but no other error set exitCode
+      const activityResultSuccess = await runDailyActivityForWallet(THE_PRIVATE_KEY);
+      if (shouldStop && process.exitCode === undefined) { 
         process.exitCode = 1; 
       } else if (process.exitCode === undefined) {
-        process.exitCode = success ? 0 : 1;
+        process.exitCode = activityResultSuccess ? 0 : 1;
       }
     } catch (error) {
       addLog(`Critical error in script execution: ${error.message}`, "error");
@@ -612,9 +539,21 @@ async function main() {
     }
   }
   
-  addLog(chalk.bgRed.white.bold(` Script Execution Finished. Exit Code: ${process.exitCode || 0}. `), "info");
-  if(activeProcesses > 0) addLog(`Warning: ${activeProcesses} process(es) might still be active on exit.`, "warn");
-  process.exit(process.exitCode || 0);
+  const finalMessage = ` Script Execution Finished. Exit Code: ${process.exitCode || 0}. `;
+  if ((process.exitCode || 0) === 0) {
+    addLog(chalk.bgGreen.black.bold(finalMessage), "info");
+  } else {
+    addLog(chalk.bgRed.white.bold(finalMessage), "info");
+  }
+
+  if(activeProcesses > 0 && !shouldStop) { // Only warn if not during a graceful stop attempt
+      addLog(`Warning: ${activeProcesses} process(es) might still be active on exit. This might indicate an issue.`, "warn");
+  } else if (activeProcesses > 0 && shouldStop) {
+      addLog(`Note: ${activeProcesses} process(es) were active when shutdown was forced/timed out.`, "info");
+  }
+  
+  // Allow a very brief moment for any final async logs to flush, then exit.
+  setTimeout(() => process.exit(process.exitCode || 0), 100);
 }
 
 main();
