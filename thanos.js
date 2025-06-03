@@ -607,7 +607,7 @@ async function runDailyActivityForWallet(privateKey) {
 async function main() {
   addLog(chalk.bgGreen.black.bold(" Script Starting Up... "), "info");
   // Notifikasi awal saat script baru dimulai
-  await sendTelegramMessage("✅ *Script Otonom Dimulai!*", 'HTML'); 
+  // await sendTelegramMessage("✅ *Script Otonom Dimulai!*", 'HTML'); 
 
   process.on("unhandledRejection", async (reason, promise) => {
     const errReason = reason instanceof Error ? reason.message : reason;
